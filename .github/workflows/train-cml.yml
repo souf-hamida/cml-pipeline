@@ -2,63 +2,46 @@ name: CML Pipeline
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
-    branches: [main]
-  workflow_dispatch:
-
-# Give the token the rights needed for comments on commits and PRs
-permissions:
-  contents: write
-  pull-requests: write
+    branches:
+      - main
 
 jobs:
   train-and-report:
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: read
+      pull-requests: write
+    
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@v3
+      
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-
+      
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-
+      
       - name: Train model
-        run: python train.py
-
-      - name: Build CML report
         run: |
-          echo "## Métriques du modèle" > report.md
+          python train.py
+      
+      - name: Create CML report
+        env:
+          REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm install -g @dvcorg/cml
+          
+          echo "## Métriques du modèle" >> report.md
           echo "" >> report.md
           cat metrics.json >> report.md
+          
+          cml comment create report.md
 
-      - name: Install CML
-        run: npm install -g @dvcorg/cml
-
-      # Comment PRs from same repo
-      - name: Comment PR with CML
-        if: ${{ github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork }}
-        env:
-          REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          cml comment create --pr report.md
-
-      # Comment commits on pushes
-      - name: Comment commit with CML
-        if: ${{ github.event_name == 'push' }}
-        env:
-          REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          cml comment create --commit-sha "$GITHUB_SHA" report.md
-
-      # Skip forked PRs (no write perms/secrets)
-      - name: Skip comment for forked PR
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork }}
-        run: echo "Forked PR: skipping CML comment (no permissions)."
